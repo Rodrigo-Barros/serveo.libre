@@ -132,6 +132,8 @@ process_command()
 		for ARG in $@;do
 			case $ARG in
 				-p) counter=$(expr $counter + 1);shift $counter; SSH_COMMAND+=($(parse_port_arg $1));;
+				*)
+					SSH_COMMAND+=($ARG)
 			esac
 		done
 	else

@@ -8,6 +8,7 @@ renomeie o arquivo .env.sample para .env, para conseguir.
 1. `./serveo.libre` Dessa forma vamos redirecionar o tráfego do serveo.net da porta 80 para nossa porta 8080 local.
 2. `./serveo.libre -p 80:9000`, dessa forma podemos redirecionado o tráfego originado da porta 80 do servidor serveo.net para a nossa porta local 9000, podendo assim desmontrar nossa aplicação para o mundo.
 3. `./serveo.libre -p 2000:22` similar aos demais comandos porém nessa caso estamos redirecionado um trafego tcp do porta 2000 do serveo.net para nosso servidor ssh na nossa porta local 22.
+4. `serveo.libre -R incubo:80:localhost:9000` dessa forma podemos fornecer argumentos diretamento para o comando ssh.
 
 # Configurando o envio de mensagens com o telegram
 Não vou entrar em muitos detalhes de como obter as chaves da API e o CHAT_ID.
