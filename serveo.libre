@@ -126,14 +126,14 @@ process_command()
 
 	local SSH_DEFAULT_ARGS+=(-R 80:localhost:8080)
 	local SSH_COMMAND=(ssh)
+	local IGNORE_COMMAND=0
 	local counter=0
 
 	if [ ! -z "$SCRIPT_ARGS" ];then
 		for ARG in $@;do
 			case $ARG in
-				-p) counter=$(expr $counter + 1);shift $counter; SSH_COMMAND+=($(parse_port_arg $1));;
-				*)
-					SSH_COMMAND+=($ARG)
+				-p) counter=$(expr $counter + 1);shift $counter; SSH_COMMAND+=($(parse_port_arg $1));IGNORE_COMMAND=1;;
+				*) [ $IGNORE_COMMAND -eq 0 ] && SSH_COMMAND+=($ARG);;
 			esac
 		done
 	else
