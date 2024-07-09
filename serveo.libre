@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+source .env
+
+SCRIPT_NAME=$(readlink -f $0)
+SCRIPT_PID=$$
+
+abort()
+{
+	rm -f links
+	rm -f output
+	# REMOVE O CTRL+C da saida do terminal
+	printf "\r"
+	kill -9 $SSH_PID
+	debug "ABORT: Apagando Arquivos temporarios"
+	debug "ABORT: Fechando Conexoes Ativas"
+}
+
+bootstrap()
+{
+	rm -f links
+	rm -f output
+
+	debug "BOOTSTRAP: script $SCRIPT_NAME"
+	debug "BOOTSTRAP: script_pid $SCRIPT_PID"
+	debug "BOOTSTRAP: Apagando Arquivos temporarios"
+
+	trap abort EXIT
+	trap stop SIGUSR1
+}
+
+debug()
+{
+	message="$@"
+	[ ! -z $DEBUG  ]  && echo "$message"
+}
+
+handle_response()
+{
+	response=$@
+
+	log $response
+
+	echo $response | grep "Forwarding HTTP" &> /dev/null 
+	if [ $? -eq 0 ];then
+		link=$(echo $response | sed -r "s|.+(https://.+)|\1|")
+		debug "DEBUG:o seu link é $link"
+		echo o seu link é $link >> links
+		send_link "$link"
+	fi
+
+	echo $response | grep -i "expired" &> /dev/null
+	if [ $? -eq 0 ];then
+		debug "DEBUG: Uma falha de conexão foi detectada finalizando a conexão e iniciando uma nova"
+		kill -9 $SSH_PID
+		STATE='starting'
+	fi
+}
+
+log()
+{
+	message=$@
+	if [ ! -z $LOG  ];then
+		echo $@ >> $LOG
+	fi
+}
+
+main(){
+	STATE='starting'
+	old_lines=0
+	old_state=$STATE
+
+	SSH_COMMAND=$(process_command $@)
+	debug "STATE: $STATE"
+	while true
+	do
+		if [ "$STATE" == "stop" ];then
+			debug "STOP: Finalizado o servico pelo SIGNAL "
+			break
+		fi
+
+		if [ "$STATE" != "started" ];then
+			# ssh ${SSH_ARGS} 1>>output 2>/dev/null &
+			debug "SSH_COMMAND: ${SSH_COMMAND[@]} 1>>output 2>/dev/null &"
+			${SSH_COMMAND[@]} 1>>output 2>/dev/null &
+			SSH_PID=$!
+			STATE='started'
+			disown
+			debug "SSH_PID: $SSH_PID"
+		fi
+
+
+		current_lines=$(cat output | wc -l)
+		line_counter=0
+		while read -r line
+		do
+			line_counter=$(expr $line_counter + 1)
+			lines_writed=$(expr $current_lines - $old_lines)
+			if [ $current_lines -gt $old_lines -a $line_counter -eq $current_lines ];then
+				#new_line=$(read_last_lines_with "$lines_writed" "Forwarding HTTP|expired")
+				handle_response $line
+				old_lines=$current_lines
+			fi
+		done < output
+		old_lines=$current_lines
+
+
+		[ "$old_state" != "$current_state"  ] && debug "STATE: $STATE"
+		old_state=$current_state
+
+		sleep $TIMEOUT
+	done
+}
+
+parse_port_arg()
+{
+	local port_remote=$(echo $1 | sed -r "s|:[0-9]+||")
+	local port_local=$(echo $1 | sed -r "s|[0-9]+:||")
+	echo -R $port_remote:localhost:$port_local
+}
+
+process_command()
+{
+	local SCRIPT_ARGS=${@:-}
+
+	declare -a SSH_DEFAULT_COMMAND
+
+	local SSH_DEFAULT_ARGS+=(-R 80:localhost:8080)
+	local SSH_COMMAND=(ssh)
+	local counter=0
+
+	if [ ! -z "$SCRIPT_ARGS" ];then
+		for ARG in $@;do
+			case $ARG in
+				-p) counter=$(expr $counter + 1);shift $counter; SSH_COMMAND+=($(parse_port_arg $1));;
+			esac
+		done
+	else
+		SSH_COMMAND+=(${SCRIPT_ARGS:-${SSH_DEFAULT_ARGS[@]}})
+	fi
+
+	SSH_COMMAND+=(serveo.net)
+
+	echo ${SSH_COMMAND[@]}
+}
+
+read_last_lines_with()
+{
+	local quantity=$(expr $1 + 1)
+	local match="$2"
+	local lines=$(tail -n "$quantity" output)
+	local line_found=""
+	IFS=$'\n'
+	for line in $lines;
+	do
+		echo $line | egrep -i "$match" &> /dev/null
+		if [ $? -eq 0 ];then
+			line_found="$line"
+		fi
+	done
+	echo $line_found
+}
+
+send_link()
+{
+	link=$(echo $@ | tr -d '[:space:]')
+	TEXT="o seu link é $link"
+	API_URL="https://api.telegram.org/bot$API_TOKEN/sendMessage"
+	
+	debug "TELEGRAM: Realizando o envio do link"
+
+	curl -X POST $API_URL \
+	-H 'Content-Type: application/json' \
+	-d "{\"chat_id\":$CHAT_ID,\"text\":\"$TEXT\"}" \
+        -s > /dev/null
+
+
+	if [ $? -eq 0 ];then
+		debug "TELEGRAM: O Envio do link foi realizado com sucesso"
+	fi
+}
+
+stop()
+{
+	STATE='stop'
+	echo "STOP: Definindo o estado do processo como stop"
+}
+
+bootstrap
+main "$@"
